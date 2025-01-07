@@ -1,0 +1,93 @@
+---
+title: "initial_viz"
+author: "Madelyn Hair"
+date: "2024-11-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load necessary packages
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(readr)
+library(purrr)
+```
+
+Set working directory to data folder
+```{r}
+setwd("/Users/mad4rosie/GilLab/Plastics/BORIS/data")
+#csvfiles<-dir(pattern="\\.csv")
+#csvout<-lapply(csvfiles, function(file) read.csv(file))
+#names(csvout) <- csvfiles
+
+tsvfiles<-dir(pattern="\\.tsv")
+tsvout<-lapply(tsvfiles, function(file) {
+  df <-read_delim(file, delim ="\t")
+  if ("Modifiers" %in% colnames(df)) {
+    df <- df %>% mutate(Modifiers = as.character(Modifiers), `Observation date`=as.character(`Observation date`), `Total length` = as.numeric(`Total length`)) %>%
+      mutate(`Start (s)`= as.numeric(`Start (s)`), `Stop (s)` = as.numeric(`Stop (s)`), `Duration (s)` = as.numeric(`Duration (s)`)) %>%
+      select(-FPS)
+  }
+  return(df)
+  })
+names(tsvout) <- tsvfiles
+
+#out<-append(csvout, tsvout)
+out<- tsvout
+```
+
+
+```{r}
+full.df<- bind_rows(out, .id = "column_label") %>%
+  dplyr::rename(Observation = column_label) %>%
+  select(-c(Description:`Media file`)) %>%
+  mutate(
+    Observer = sub("_.*", "", Observation),  # Extract everything before the first _
+  ) %>%
+  select(-c(Observation, `Media files/Live observation`, `Behavioral category`, Date, Subjects)) %>%
+  dplyr::rename(Start = 'Start (s)',
+                Stop = 'Stop (s)') %>% 
+  mutate(
+   Site = sub("^(.*?)_.*", "\\1", `Observation id`),
+   Phase = sub("^.*?_(.*?)_.*", "\\1", `Observation id`),
+   Photoperiod= sub("^.*?_.+?_(.*?)_.*", "\\1", `Observation id`),
+   Video_name =sub("^.*?_.+?_.+?_(.*)", "\\1", `Observation id`),
+   Species= sub("\\d$", "", Subject)) %>% 
+   separate(Modifiers, into = c("Plot", "modifier_2", "modifier_3"), sep = "\\|", fill = "right")
+   
+```
+
+
+Visualize frequency plots
+```{r}
+spp_freq<-full.df%>%
+  group_by(Subject,`Observation id`, Plot) %>%
+  slice(1) %>% #keeps only the first observation of each subject in a video's plot for the frequency count
+  ungroup() %>%
+  group_by(Phase, Species, Plot) %>%
+  summarise(freq=n()) %>%
+  ungroup() %>%
+  filter(!is.na(Species), !is.na(Plot))%>%
+  complete(Phase, Species, Plot) %>%
+  mutate(Species=factor(Species, levels = c("Damselfish", "Grunt", "Goatfish", "Parrotfish", "Surgeonfish", "Snapper", "Wrasse","Jack", "Grouper","Butterfly", "Other", "No focal subject")), 
+         Phase = factor(Phase, levels= c("pre", "addition", "acclim", "removal")),
+         Bottles = case_when(Plot==1 ~ "No bottle", Plot ==2 ~ "Biofouled bottle", Plot ==3 ~ "Clean bottle"))
+
+#Make na's 0 so there is a value for every species and every phase
+spp_freq$freq[is.na(spp_freq$freq)] <- 0
+
+ggplot(spp_freq, aes(x = Phase, y = freq, color = Bottles)) + 
+  geom_point ()+
+  geom_line(aes(group=Bottles))+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = .5, hjust = .5))+
+  facet_wrap(~Species) + 
+  labs(title="A03 Visitation Rates")
+ggsave("A03_visitation_1120.png")  
+```
+
