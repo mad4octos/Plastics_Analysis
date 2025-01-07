@@ -6,7 +6,9 @@ output: html_document
 ---
 #Testing commit to github, part 2
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
+require("knitr")
+opts_knit$set(root.dir = "~/Library/CloudStorage/GoogleDrive-maha7624@colorado.edu/Shared drives/Field Research Videos/Gil Lab/Projects_2024/Plastics/completed_annotations_plastics")
 ```
 
 Load necessary packages
@@ -20,7 +22,7 @@ library(purrr)
 
 Set working directory to data folder
 ```{r}
-setwd("/Users/mad4rosie/GilLab/Plastics/BORIS/data")
+setwd("~/Library/CloudStorage/GoogleDrive-maha7624@colorado.edu/Shared drives/Field Research Videos/Gil Lab/Projects_2024/Plastics/completed_annotations_plastics")
 #csvfiles<-dir(pattern="\\.csv")
 #csvout<-lapply(csvfiles, function(file) read.csv(file))
 #names(csvout) <- csvfiles
@@ -58,8 +60,20 @@ full.df<- bind_rows(out, .id = "column_label") %>%
    Photoperiod= sub("^.*?_.+?_(.*?)_.*", "\\1", `Observation id`),
    Video_name =sub("^.*?_.+?_.+?_(.*)", "\\1", `Observation id`),
    Species= sub("\\d$", "", Subject)) %>% 
-   separate(Modifiers, into = c("Plot", "modifier_2", "modifier_3"), sep = "\\|", fill = "right")
-   
+   separate(Modifiers, into = c("Plot", "modifier_2", "modifier_3"), sep = "\\|", fill = "right") %>%
+  mutate(Bottles = case_when(
+    Site %in% c("A03", "A05") & Plot == 1 ~ "No bottle",
+    Site %in% c("A03", "A05") & Plot ==2 ~ "Biofouled bottle",
+    Site %in% c("A03", "A05") & Plot == 3 ~ "Clean bottle",
+      Site == "A07" & Plot == 1 ~ "No bottle",
+      Site == "A07" & Plot == 2 ~ "Clean bottle",
+      Site == "A07" & Plot == 3 ~ "Biofouled bottle",
+      TRUE ~ NA_character_  # Default case (if needed)
+    ),
+    Bottles = factor(Bottles, levels = c("No bottle", "Biofouled bottle", "Clean bottle")),
+    Phase = factor(Phase, levels=c("pre", "addition", "acclim", "removal")))
+
+
 ```
 
 
@@ -69,25 +83,43 @@ spp_freq<-full.df%>%
   group_by(Subject,`Observation id`, Plot) %>%
   slice(1) %>% #keeps only the first observation of each subject in a video's plot for the frequency count
   ungroup() %>%
-  group_by(Phase, Species, Plot) %>%
+  group_by(Phase, Species, Bottles) %>%
   summarise(freq=n()) %>%
   ungroup() %>%
-  filter(!is.na(Species), !is.na(Plot))%>%
-  complete(Phase, Species, Plot) %>%
+  filter(!is.na(Species), !is.na(Bottles))%>%
+  complete(Phase, Species, Bottles) %>%
   mutate(Species=factor(Species, levels = c("Damselfish", "Grunt", "Goatfish", "Parrotfish", "Surgeonfish", "Snapper", "Wrasse","Jack", "Grouper","Butterfly", "Other", "No focal subject")), 
-         Phase = factor(Phase, levels= c("pre", "addition", "acclim", "removal")),
-         Bottles = case_when(Plot==1 ~ "No bottle", Plot ==2 ~ "Biofouled bottle", Plot ==3 ~ "Clean bottle"))
+         Phase = factor(Phase, levels= c("pre", "addition", "acclim", "removal"))
+  )
 
 #Make na's 0 so there is a value for every species and every phase
 spp_freq$freq[is.na(spp_freq$freq)] <- 0
 
-ggplot(spp_freq, aes(x = Phase, y = freq, color = Bottles)) + 
+
+all_visits<-ggplot(spp_freq, aes(x = Phase, y = freq, color = Bottles)) + 
   geom_point ()+
   geom_line(aes(group=Bottles))+
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, vjust = .5, hjust = .5))+
   facet_wrap(~Species) + 
-  labs(title="A03 Visitation Rates")
-ggsave("A03_visitation_1120.png")  
+  labs(title="Visitation Rates, All Plots")
+all_visits
+```
+
+```{r}
+bites_sum<-full.df %>%
+  filter(Behavior=="bite")%>%
+  group_by(Phase, Bottles, Site) %>%
+  summarize(total_bites=n())
+bitesp<- ggplot(bites_sum, aes(x = Phase, y = total_bites, color = Bottles)) +
+  geom_point()+
+  geom_line(aes(group=Bottles))+
+  facet_wrap(~Site)
+bitesp
+```
+
+```{r}
+ggsave("All_visitation_0107.png", all_visits, height = 10, width = 10)
+ggsave("All_Bites_0107.png", bitesp, height=5, width= 10)
 ```
 
