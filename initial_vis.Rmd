@@ -18,6 +18,7 @@ library(tidyr)
 library(dplyr)
 library(readr)
 library(purrr)
+library(stringr)
 ```
 
 Set working directory to data folder
@@ -29,11 +30,30 @@ setwd("~/Library/CloudStorage/GoogleDrive-maha7624@colorado.edu/Shared drives/Fi
 
 tsvfiles<-dir(pattern="\\.tsv")
 tsvout<-lapply(tsvfiles, function(file) {
-  df <-read_delim(file, delim ="\t")
+ suppressWarnings({
+  df <-read_delim(file, delim ="\t", col_types = cols(
+     #matching the variable type for PC and Mac
+    `Observation date` = col_character(),
+    `Modifier #1` = col_double(),
+    `Start (s)` = col_double(),
+    `Stop (s)` = col_double(),
+    `Duration (s)` = col_double(),
+    `Time offset (s)` = col_double(),
+    `Coding duration` = col_double(),
+    `Media duration (s)` = col_double(),
+    `FPS (frame/s)` = col_double(),
+    `Observation duration by subject by observation` = col_double(),
+    `Image index start` = col_double(),
+    `Image index stop` = col_double()
+  )) 
+ })
   if ("Modifiers" %in% colnames(df)) {
     df <- df %>% mutate(Modifiers = as.character(Modifiers), `Observation date`=as.character(`Observation date`), `Total length` = as.numeric(`Total length`)) %>%
       mutate(`Start (s)`= as.numeric(`Start (s)`), `Stop (s)` = as.numeric(`Stop (s)`), `Duration (s)` = as.numeric(`Duration (s)`)) %>%
       select(-FPS)
+  }
+ if ("Modifier #1" %in% colnames(df)) {
+    df <- df %>% rename(Plot = `Modifier #1`)
   }
   return(df)
   })
@@ -51,25 +71,35 @@ full.df<- bind_rows(out, .id = "column_label") %>%
   mutate(
     Observer = sub("_.*", "", Observation),  # Extract everything before the first _
   ) %>%
-  select(-c(Observation, `Media files/Live observation`, `Behavioral category`, Date, Subjects)) %>%
+   select(-c(Observation, `Behavioral category`)) %>%
+  select(-one_of(intersect(c("Date", "Media files/Live observation", "Subjects"), colnames(.)))) %>%
   dplyr::rename(Start = 'Start (s)',
                 Stop = 'Stop (s)') %>% 
   mutate(
-   Site = sub("^(.*?)_.*", "\\1", `Observation id`),
-   Phase = sub("^.*?_(.*?)_.*", "\\1", `Observation id`),
-   Photoperiod= sub("^.*?_.+?_(.*?)_.*", "\\1", `Observation id`),
-   Video_name =sub("^.*?_.+?_.+?_(.*)", "\\1", `Observation id`),
-   Species= sub("\\d$", "", Subject)) %>% 
-   separate(Modifiers, into = c("Plot", "modifier_2", "modifier_3"), sep = "\\|", fill = "right") %>%
-  mutate(Bottles = case_when(
+    Site = word(`Observation id`, 2, sep = "_"),
+    Phase = word(`Observation id`, 3, sep = "_"),
+    Photoperiod = word(`Observation id`, 4, sep = "_"),
+    Video_name = word(`Observation id`, 5, sep = "_"),
+     Species= sub("\\d$", "", Subject)) %>%
+
+mutate(Plot = coalesce(
+    as.numeric(sapply(strsplit(as.character(Modifiers), "\\|"), `[`, 1)),
+    as.numeric(Plot)
+  )) %>%
+
+   mutate(Bottles = case_when(
     Site %in% c("A03", "A05") & Plot == 1 ~ "No bottle",
-    Site %in% c("A03", "A05") & Plot ==2 ~ "Biofouled bottle",
+    Site %in% c("A03", "A05") & Plot == 2 ~ "Biofouled bottle",
     Site %in% c("A03", "A05") & Plot == 3 ~ "Clean bottle",
-      Site == "A07" & Plot == 1 ~ "No bottle",
-      Site == "A07" & Plot == 2 ~ "Clean bottle",
-      Site == "A07" & Plot == 3 ~ "Biofouled bottle",
-      TRUE ~ NA_character_  # Default case (if needed)
-    ),
+
+    Site %in% c("A07", "A09") & Plot == 1 ~ "No bottle",
+    Site %in% c("A07", "A09") & Plot == 2 ~ "Clean bottle",
+    Site %in% c("A07", "A09") & Plot == 3 ~ "Biofouled bottle",
+
+    Site %in% c("A10") & Plot == 1 ~ "Clean bottle",
+    Site %in% c("A10") & Plot == 2 ~ "No bottle",
+    Site %in% c("A10") & Plot == 3 ~ "Biofouled bottle",
+  ),
     Bottles = factor(Bottles, levels = c("No bottle", "Biofouled bottle", "Clean bottle")),
     Phase = factor(Phase, levels=c("pre", "addition", "acclim", "removal")))
 
